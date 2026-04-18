@@ -112,7 +112,7 @@ async def test(config: dict, logger):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="虚拟货币价格监控系统")
+    parser = argparse.ArgumentParser(description="CryptoSentry - 加密货币实时监控哨兵")
     parser.add_argument("--config", default="config.yaml", help="配置文件路径")
     parser.add_argument("--daemon", action="store_true", help="后台运行")
     parser.add_argument("--test", action="store_true", help="测试模式")

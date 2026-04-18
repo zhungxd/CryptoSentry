@@ -1,6 +1,6 @@
-# Trace - 虚拟货币价格监控系统
+# CryptoSentry / 币哨
 
-基于币安API的实时加密货币价格监控系统，支持多种技术指标分析和钉钉机器人通知。
+加密货币实时监控哨兵——基于币安API，多指标共振分析，异动即时推送。
 
 ## 功能特性
 
@@ -23,7 +23,7 @@
 ## 项目结构
 
 ```
-trace/
+crypto-sentry/
 ├── config.yaml              # 配置文件
 ├── requirements.txt         # Python依赖
 ├── main.py                  # 入口文件
