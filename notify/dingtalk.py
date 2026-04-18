@@ -1,3 +1,4 @@
+import asyncio
 import time
 import hmac
 import hashlib
@@ -16,6 +17,8 @@ class DingTalkNotifier:
         self.secret = dingtalk_cfg.get("secret", "")
         self.message_type = dingtalk_cfg.get("message_type", "markdown")
         self._session = None
+        self._min_interval = dingtalk_cfg.get("min_interval_seconds", 20)
+        self._last_send_time = 0.0
 
     def _generate_sign_url(self) -> str:
         timestamp = str(round(time.time() * 1000))
@@ -36,12 +39,20 @@ class DingTalkNotifier:
             self.logger.warning("钉钉Webhook未配置，跳过发送")
             return False
 
+        now = time.time()
+        elapsed = now - self._last_send_time
+        if elapsed < self._min_interval:
+            wait = self._min_interval - elapsed
+            self.logger.debug(f"钉钉频控等待 {wait:.1f}s")
+            await asyncio.sleep(wait)
+
         try:
             url = self._generate_sign_url()
             session = await self._get_session()
             async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                 result = await resp.json()
                 if result.get("errcode") == 0:
+                    self._last_send_time = time.time()
                     return True
                 else:
                     self.logger.error(f"钉钉发送失败: {result}")
@@ -109,6 +120,40 @@ class DingTalkNotifier:
                 f"{icon} 价格提醒 - {symbol}\n"
                 f"{direction} ${target:,.2f}\n"
                 f"当前: ${price:,.2f}\n"
+                f"时间: {now}"
+            )
+            payload = {
+                "msgtype": "text",
+                "text": {"content": text},
+            }
+
+        return await self._send(payload)
+
+    async def send_price_change(self, symbol: str, direction: str, pct: float,
+                                open_price: float, current_price: float) -> bool:
+        icon = "🔥" if direction == "上涨" else "💧"
+        sign = "+" if pct > 0 else ""
+        now = time.strftime("%Y-%m-%d %H:%M:%S")
+
+        if self.message_type == "markdown":
+            text = (
+                f"### {icon} 行情异动 - {symbol}\n\n"
+                f"**方向**：{direction} {sign}{pct:.2f}%\n\n"
+                f"**开盘价**：${open_price:,.2f}\n\n"
+                f"**当前价**：${current_price:,.2f}\n\n"
+                f"**变动额**：${current_price - open_price:+,.2f}\n\n"
+                f"**时间**：{now}"
+            )
+            payload = {
+                "msgtype": "markdown",
+                "markdown": {"title": f"{icon} 行情异动 - {symbol}", "text": text},
+            }
+        else:
+            text = (
+                f"{icon} 行情异动 - {symbol}\n"
+                f"{direction} {sign}{pct:.2f}%\n"
+                f"开盘: ${open_price:,.2f}\n"
+                f"当前: ${current_price:,.2f}\n"
                 f"时间: {now}"
             )
             payload = {

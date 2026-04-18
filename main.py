@@ -58,20 +58,35 @@ async def run(config: dict, logger):
     market = BinanceMarket(config, logger, storage, signal_engine, indicator_registry)
     signal_engine._market_ref = market
 
-    logger.info("正在连接币安API...")
-    await market.start()
-
+    loop = asyncio.get_running_loop()
     stop_event = asyncio.Event()
 
-    loop = asyncio.get_running_loop()
+    def _on_signal():
+        if stop_event.is_set():
+            return
+        logger.info("收到退出信号，正在安全关闭...")
+        stop_event.set()
+        market._running = False
+
     for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, lambda: stop_event.set())
+        loop.add_signal_handler(sig, _on_signal)
 
-    logger.info("监控系统已启动，按 Ctrl+C 退出")
-    await stop_event.wait()
+    logger.info("正在连接币安API...")
 
-    logger.info("正在关闭...")
+    market_task = asyncio.create_task(market.start())
+    stop_event.wait_task = asyncio.create_task(stop_event.wait())
+
+    done, pending = await asyncio.wait(
+        [market_task, stop_event.wait_task],
+        return_when=asyncio.FIRST_COMPLETED,
+    )
+
+    for t in pending:
+        t.cancel()
+
+    logger.info("正在保存数据并关闭...")
     await market.stop()
+    await notifier.close()
     await storage.close()
     logger.info("已安全退出")
 
@@ -92,6 +107,8 @@ async def test(config: dict, logger):
         logger.info("币安API连接测试成功！")
     else:
         logger.error("币安API连接测试失败！")
+
+    await notifier.close()
 
 
 def main():

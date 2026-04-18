@@ -1,7 +1,7 @@
 proxy:
-  enabled: true
-  http: "http://127.0.0.1:7890"
-  https: "http://127.0.0.1:7890"
+  enabled: false
+  http: "http://127.0.0.1:7897"
+  https: "http://127.0.0.1:7897"
 
 binance:
   base_url: "https://api.binance.com"
@@ -55,10 +55,20 @@ signal:
   max_notifications_per_hour: 10
   min_strength: "medium"
 
+price_log:
+  enabled: true
+  interval_seconds: 10
+
+price_change_alert:
+  enabled: true
+  pct_threshold: 1.0
+  cooldown_seconds: 600
+
 dingtalk:
   webhook: "https://oapi.dingtalk.com/robot/send?access_token=YOUR_TOKEN"
   secret: "YOUR_SECRET"
   message_type: "markdown"
+  min_interval_seconds: 20
 
 logging:
   level: "INFO"
