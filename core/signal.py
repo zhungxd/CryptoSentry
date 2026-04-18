@@ -69,7 +69,7 @@ class SignalEngine:
 
         results = []
 
-        if buy_signals:
+        if len(buy_signals) >= 2:
             strength = self._calc_combined_strength(buy_signals)
             results.append({
                 "type": "buy",
@@ -80,7 +80,7 @@ class SignalEngine:
                 "price": price,
             })
 
-        if sell_signals:
+        if len(sell_signals) >= 2:
             strength = self._calc_combined_strength(sell_signals)
             results.append({
                 "type": "sell",

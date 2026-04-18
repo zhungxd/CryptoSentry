@@ -64,6 +64,15 @@ price_change_alert:
   pct_threshold: 1.0
   cooldown_seconds: 600
 
+round_price_alert:
+  enabled: true
+  step: 1000
+  cooldown_seconds: 300
+
+indicator_report:
+  enabled: true
+  interval_seconds: 60
+
 dingtalk:
   webhook: "https://oapi.dingtalk.com/robot/send?access_token=YOUR_TOKEN"
   secret: "YOUR_SECRET"

@@ -36,11 +36,16 @@ class BinanceMarket:
         self._rest_session = None
 
         self._latest_prices: dict[str, float] = {}
+        self._prev_prices: dict[str, float] = {}
         self._price_log_cfg = config.get("price_log", {})
         self._price_change_cfg = config.get("price_change_alert", {})
+        self._round_alert_cfg = config.get("round_price_alert", {})
+        self._indicator_report_cfg = config.get("indicator_report", {})
         self._last_logged: datetime = None
         self._last_change_alert: dict[str, datetime] = {}
+        self._last_round_alert: dict[str, datetime] = {}
         self._price_log_task = None
+        self._indicator_report_task = None
 
     def _get_proxy_connector(self):
         if not self.proxy_enabled:
@@ -133,12 +138,17 @@ class BinanceMarket:
         if self._price_log_cfg.get("enabled", True):
             self._price_log_task = asyncio.create_task(self._price_log_loop())
 
+        if self._indicator_report_cfg.get("enabled", True):
+            self._indicator_report_task = asyncio.create_task(self._indicator_report_loop())
+
         await self._connect_websocket()
 
     async def stop(self):
         self._running = False
         if self._price_log_task:
             self._price_log_task.cancel()
+        if self._indicator_report_task:
+            self._indicator_report_task.cancel()
         if self.ws_connection and not self.ws_connection.closed:
             await self.ws_connection.close()
         if self.ws_session and not self.ws_session.closed:
@@ -282,6 +292,8 @@ class BinanceMarket:
 
             self._latest_prices[symbol] = float(kline["c"])
             await self._check_price_change(symbol, float(kline["c"]))
+            await self._check_round_price_cross(symbol, float(kline["c"]))
+            self._prev_prices[symbol] = float(kline["c"])
 
         except Exception as e:
             self.logger.error(f"处理K线消息异常: {e}")
@@ -363,3 +375,151 @@ class BinanceMarket:
                 open_price=open_price,
                 current_price=price,
             )
+
+    async def _check_round_price_cross(self, symbol: str, price: float):
+        if not self._round_alert_cfg.get("enabled", True):
+            return
+
+        prev_price = self._prev_prices.get(symbol)
+        if prev_price is None:
+            return
+
+        step = self._round_alert_cfg.get("step", 1000)
+        cooldown_sec = self._round_alert_cfg.get("cooldown_seconds", 300)
+
+        prev_level = int(prev_price // step)
+        curr_level = int(price // step)
+
+        if curr_level == prev_level:
+            return
+
+        crossed_price = min(prev_level, curr_level) * step + (step if curr_level > prev_level else 0)
+
+        now = datetime.now()
+        alert_key = f"{symbol}_{crossed_price}"
+        last_alert = self._last_round_alert.get(alert_key)
+        if last_alert and (now - last_alert) < timedelta(seconds=cooldown_sec):
+            return
+
+        self._last_round_alert[alert_key] = now
+
+        direction = "突破" if price > prev_price else "跌破"
+
+        self.logger.warning(
+            f"🎯 整数关口: {symbol} {direction} ${crossed_price:,} "
+            f"当前=${price:,.2f}"
+        )
+
+        if self.signal_engine and self.signal_engine.notifier:
+            await self.signal_engine.notifier.send_price_alert(
+                symbol=symbol,
+                price=price,
+                target=float(crossed_price),
+                direction=direction,
+            )
+
+    async def _indicator_report_loop(self):
+        interval_sec = self._indicator_report_cfg.get("interval_seconds", 60)
+        self.logger.info(f"指标状态报告已启用，每 {interval_sec} 秒输出一次")
+
+        while self._running:
+            await asyncio.sleep(interval_sec)
+            if not self._running:
+                break
+            await self._report_indicators()
+
+    async def _report_indicators(self):
+        if not self.indicator_registry or not self._kline_buffer:
+            return
+
+        for symbol_cfg in self.symbols:
+            symbol = symbol_cfg["name"]
+            key_1h = f"{symbol}_1h"
+            results = self.indicator_registry.results.get(key_1h, {})
+            if not results:
+                continue
+
+            price = self._latest_prices.get(symbol, 0)
+            lines = [f"📈 {symbol} ${price:,.2f} [1h]"]
+
+            rsi_data = results.get("rsi", {})
+            if rsi_data:
+                rsi_val = rsi_data.get("rsi")
+                if rsi_val is not None:
+                    cfg = self.config.get("indicators", {}).get("rsi", {})
+                    ob = cfg.get("overbought", 70)
+                    os_ = cfg.get("oversold", 30)
+                    dist_ob = round(ob - rsi_val, 1)
+                    dist_os = round(rsi_val - os_, 1)
+                    warn = " ⚠️超买" if dist_ob <= 0 else (" ⚠️超卖" if dist_os <= 0 else "")
+                    lines.append(f"  RSI={rsi_val}{warn} (距超买{dist_ob}/距超卖{dist_os})")
+
+            macd_data = results.get("macd", {})
+            if macd_data:
+                dif = macd_data.get("macd")
+                dea = macd_data.get("signal")
+                hist = macd_data.get("histogram")
+                if dif is not None and dea is not None:
+                    gap = round(abs(dif - dea), 4)
+                    cross = "金叉区" if dif > dea else "死叉区"
+                    lines.append(f"  MACD: DIF={dif} DEA={dea} 柱={hist} {cross}(距交叉{gap})")
+
+            bb_data = results.get("bollinger", {})
+            if bb_data:
+                upper = bb_data.get("upper")
+                lower = bb_data.get("lower")
+                mid = bb_data.get("middle")
+                close = bb_data.get("close")
+                if upper and lower and close:
+                    dist_up = round(upper - close, 2)
+                    dist_lo = round(close - lower, 2)
+                    pct_pos = round((close - lower) / (upper - lower) * 100, 1) if upper != lower else 50
+                    lines.append(f"  布林: 上={upper} 下={lower} 位置={pct_pos}%(距上{dist_up}/距下{dist_lo})")
+
+            kdj_data = results.get("kdj", {})
+            if kdj_data:
+                k = kdj_data.get("k")
+                d = kdj_data.get("d")
+                j = kdj_data.get("j")
+                if k is not None and d is not None:
+                    cfg = self.config.get("indicators", {}).get("kdj", {})
+                    ob = cfg.get("overbought", 80)
+                    os_ = cfg.get("oversold", 20)
+                    warn = " ⚠️超买" if k > ob else (" ⚠️超卖" if k < os_ else "")
+                    lines.append(f"  KDJ: K={k} D={d} J={j}{warn}")
+
+            ema_data = results.get("ema", {})
+            if ema_data:
+                periods = self.config.get("indicators", {}).get("ema", {}).get("periods", [7, 25, 99])
+                parts = []
+                for p in periods:
+                    v = ema_data.get(f"ema_{p}")
+                    if v is not None:
+                        side = "上" if price > v else "下"
+                        parts.append(f"EMA{p}={v}({side}方)")
+                if parts:
+                    lines.append("  " + " | ".join(parts))
+
+            st_data = results.get("supertrend", {})
+            if st_data:
+                st_val = st_data.get("supertrend")
+                direction = st_data.get("direction")
+                if st_val is not None:
+                    trend = "多头🟢" if direction < 0 else "空头🔴"
+                    dist = round(abs(price - st_val), 2)
+                    lines.append(f"  SuperTrend: {trend} 趋势线={st_val}(距{dist})")
+
+            atr_data = results.get("atr", {})
+            if atr_data:
+                atr_val = atr_data.get("atr")
+                if atr_val is not None and price > 0:
+                    atr_pct = round(atr_val / price * 100, 2)
+                    lines.append(f"  ATR={atr_val} ({atr_pct}%)")
+
+            obv_data = results.get("obv", {})
+            if obv_data:
+                obv_val = obv_data.get("obv")
+                if obv_val is not None:
+                    lines.append(f"  OBV={obv_val:,}")
+
+            self.logger.info("\n".join(lines))
