@@ -1,0 +1,65 @@
+proxy:
+  enabled: true
+  http: "http://127.0.0.1:7890"
+  https: "http://127.0.0.1:7890"
+
+binance:
+  base_url: "https://api.binance.com"
+  ws_url: "wss://stream.binance.com:9443/ws"
+
+symbols:
+  - name: "BTCUSDT"
+    intervals: ["1h", "4h", "1d"]
+    price_alerts: [100000, 150000]
+  - name: "ETHUSDT"
+    intervals: ["1h", "4h", "1d"]
+    price_alerts: [3000, 5000]
+
+indicators:
+  rsi:
+    enabled: true
+    period: 14
+    overbought: 70
+    oversold: 30
+  macd:
+    enabled: true
+    fast: 12
+    slow: 26
+    signal: 9
+  bollinger:
+    enabled: true
+    period: 20
+    std: 2.0
+  ema:
+    enabled: true
+    periods: [7, 25, 99]
+  kdj:
+    enabled: true
+    k_period: 9
+    d_period: 3
+    j_period: 3
+    overbought: 80
+    oversold: 20
+  supertrend:
+    enabled: true
+    period: 10
+    multiplier: 3.0
+  atr:
+    enabled: true
+    period: 14
+  obv:
+    enabled: true
+
+signal:
+  cooldown_minutes: 15
+  max_notifications_per_hour: 10
+  min_strength: "medium"
+
+dingtalk:
+  webhook: "https://oapi.dingtalk.com/robot/send?access_token=YOUR_TOKEN"
+  secret: "YOUR_SECRET"
+  message_type: "markdown"
+
+logging:
+  level: "INFO"
+  file: "data/trace.log"
