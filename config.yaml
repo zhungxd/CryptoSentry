@@ -57,7 +57,7 @@ signal:
 
 price_log:
   enabled: true
-  interval_seconds: 10
+  interval_seconds: 30
 
 price_change_alert:
   enabled: true
@@ -67,11 +67,11 @@ price_change_alert:
 round_price_alert:
   enabled: true
   step: 1000
-  cooldown_seconds: 300
+  cooldown_seconds: 7200
 
 indicator_report:
   enabled: true
-  interval_seconds: 60
+  interval_seconds: 180
 
 dingtalk:
   webhook: "https://oapi.dingtalk.com/robot/send?access_token=YOUR_TOKEN"

@@ -385,7 +385,7 @@ class BinanceMarket:
             return
 
         step = self._round_alert_cfg.get("step", 1000)
-        cooldown_sec = self._round_alert_cfg.get("cooldown_seconds", 300)
+        cooldown_sec = self._round_alert_cfg.get("cooldown_seconds", 7200)
 
         prev_level = int(prev_price // step)
         curr_level = int(price // step)
@@ -393,30 +393,36 @@ class BinanceMarket:
         if curr_level == prev_level:
             return
 
-        crossed_price = min(prev_level, curr_level) * step + (step if curr_level > prev_level else 0)
+        is_up = curr_level > prev_level
+        if is_up:
+            crossed_levels = range(prev_level + 1, curr_level + 1)
+        else:
+            crossed_levels = range(prev_level, curr_level, -1)
 
         now = datetime.now()
-        alert_key = f"{symbol}_{crossed_price}"
-        last_alert = self._last_round_alert.get(alert_key)
-        if last_alert and (now - last_alert) < timedelta(seconds=cooldown_sec):
-            return
+        for level in crossed_levels:
+            crossed_price = level * step
+            alert_key = f"{symbol}_{crossed_price}"
+            last_alert = self._last_round_alert.get(alert_key)
+            if last_alert and (now - last_alert) < timedelta(seconds=cooldown_sec):
+                continue
 
-        self._last_round_alert[alert_key] = now
+            self._last_round_alert[alert_key] = now
 
-        direction = "突破" if price > prev_price else "跌破"
+            direction = "突破" if is_up else "跌破"
 
-        self.logger.warning(
-            f"🎯 整数关口: {symbol} {direction} ${crossed_price:,} "
-            f"当前=${price:,.2f}"
-        )
-
-        if self.signal_engine and self.signal_engine.notifier:
-            await self.signal_engine.notifier.send_price_alert(
-                symbol=symbol,
-                price=price,
-                target=float(crossed_price),
-                direction=direction,
+            self.logger.warning(
+                f"🎯 整数关口: {symbol} {direction} ${crossed_price:,} "
+                f"当前=${price:,.2f}"
             )
+
+            if self.signal_engine and self.signal_engine.notifier:
+                await self.signal_engine.notifier.send_price_alert(
+                    symbol=symbol,
+                    price=price,
+                    target=float(crossed_price),
+                    direction=direction,
+                )
 
     async def _indicator_report_loop(self):
         interval_sec = self._indicator_report_cfg.get("interval_seconds", 60)
